@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description:  This template deploys a VPC, with a pair of public and private subnets spread
+  across two Availability Zones. It deploys an internet gateway, with a default
+  route on the public subnets. It deploys a pair of NAT gateways (one in each AZ),
+  and default routes for them in the private subnets.
+Parameters:
+  EnvironmentName: 
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: DE-Extract
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 192.168.0.0/16
+  DataCenterPublicSubnetCIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 192.168.10.0/24
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+      VpnGatewayId: !Ref InternetGateway
+  DataCenterPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: !Ref DataCenterPublicSubnetCIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: DE-Extract Data Center Subnet
+      VpcId: !Ref VPC
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: DE-Extract Public Routes
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  DataCenterPublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref DataCenterPublicSubnet
+  WindowsInstanceSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupName:  DE-Extract-WindowsInstanceSG
+      GroupDescription:  Permits RDP access to an instance deployed within the public subnet of the VPC.
+      SecurityGroupEgress:
+        IpProtocol: tcp
+        FromPort:  3389
+        ToPort: 3389
+        CidrIp:  0.0.0.0/0
+      SecurityGroupIngress:
+        IpProtocol: tcp
+        FromPort:  3389
+        ToPort: 3389
+        CidrIp:  0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: DE-Extract-WindowsInstanceSG
+  FileServerGatewaySG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupName:  DE-Extract-FileServerSG
+      GroupDescription:  Permit ssh access to the data center's file server from an internal source within the VPC.
+      SecurityGroupEgress: 
+        IpProtocol: ssh
+        FromPort:  22
+        ToPort: 22
+        CidrIp:  192.168.10.0/24
+      SecurityGroupIngress: 
+        IpProtocol: ssh
+        FromPort:  22
+        ToPort: 22
+        CidrIp:  192.168.10.0/24
+      Tags:
+        - Key: Name
+          Value: DE-Extract-FileServerSG 
+  FileGatewaySG: 
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription:  Controls the access to the file gateway instance.
+      GroupName:  DE-Extract-FileGatewaySG
+      SecurityGroupIngress:
+        IpProtocol: tcp
+        FromPort:  1-65534
+        ToPort: 1-65534
+        CidrIp:  192.168.0.0/16
+      SecurityGroupEgress:
+        IpProtocol: tcp
+        FromPort:  1-65534
+        ToPort: 1-65534
+        CidrIp:  192.168.0.0/16
+      Tags:
+        - Key: Name
+          Value: DE-Extract-FileGatewaySG
+      VpcId: !Ref VPC   
+Outputs:
+  VPC:
+    Description: A reference to the created VPC
+    Value: !Ref VPC
+  PublicSubnets:
+    Description: A list of the public subnets
+    Value: !Join [ ",", [ !Ref DataCenterPublicSubnet]]
+  DataCenterPublicSubnet:
+    Description: A reference to the public subnet in the 1st Availability Zone
+    Value: !Ref DataCenterPublicSubnet
+  WindowsInstanceSG:
+    Description: Permits RDP access to an instance deployed within the public subnet of the VPC.
+    Value: !Ref WindowsInstanceSG
+  FileGatewaySG:
+    Description: Responsible for permitting ssh access to the data center's file server from an internal source within the VPC.
+    Value: !Ref FileGatewaySG
+  FileGatewaySG:
+    Description: Controls the access to the file gateway instance.
+    Value: !Ref FileGatewaySG
