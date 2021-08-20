@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: 2010-09-09
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Extract Predict Part 1 - File Server resource deployment
+        Parameters:
+          - VPC
+          - Subnet
+          - KeyName
+          - SecurityGroupIds
+          - LatestLinuxAmiId       
+Parameters:
+  VPC:
+    Description: List of VPC to deploy resources.
+    Type: 'List<AWS::EC2::VPC::Id>'
+  KeyName:
+    Description: List of an existing EC2 KeyPair to enable SSH access to the file server.
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+  Subnet:
+    Description: Listing Subnet to deploy resources.
+    Type: AWS::EC2::Subnet::Id
+  SecurityGroupIds:
+    Description: Select the security group/s for resources.
+    Type: 'List<AWS::EC2::SecurityGroup::Id>'
+  LatestWindowsAmiId:
+    Description: Do Not modify the below default value!
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-windows-latest/Windows_Server-2019-English-Full-Base
+Resources:
+  WindowsInstanceRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Delete
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /          
+  WindowsInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref WindowsInstanceRole
+  WindowsInstanceRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub 
+        - Windows-client-${StackName} 
+        - { StackName: !Ref AWS::StackName }
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 's3:Get*'
+              - 's3:List*'
+            Resource: '*'
+      Roles:
+        - !Ref WindowsInstanceRole
+    DeletionPolicy: Delete  
+  WindowsInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestWindowsAmiId
+      KeyName: !Ref KeyName
+      InstanceType: t2.micro
+      IamInstanceProfile: !Ref WindowsInstanceProfile
+      SecurityGroupIds: !Ref SecurityGroupIds
+      SubnetId: !Ref Subnet
+      Tags:
+        - Key: Name
+          Value: DE-Extract-Windows-Instance
